@@ -75,16 +75,16 @@ def _str_to_number(s):
 def _match_strings(pattern, target):
     # Match strings pattern and target. '*' at the beginning or the end of
     # the pattern is wildcard.
-    star_begin = pattern.find('*')
-    star_end = pattern.rfind('*')
-    if pattern == '*':
-        return True
-    if 0 == star_begin < star_end == len(pattern) - 1:
-        return target.find(pattern[1:star_end - 1]) != -1
-    elif star_begin == 0:
-        return target.find(pattern[1:]) != -1
-    elif star_end == len(pattern) - 1:
-        return target.find(pattern[:star_end]) != -1
+    wildcard_begin = pattern.find('*')
+    wildcard_end = pattern.rfind('*')
+    if 0 == wildcard_begin < wildcard_end == len(pattern) - 1:
+        return target.find(pattern[1:wildcard_end - 1]) != -1
+    elif wildcard_begin == 0:
+        fixed = pattern[1:]
+        return len(fixed) == 0 or target[-len(fixed):] == fixed
+    elif wildcard_end == len(pattern) - 1:
+        fixed = pattern[:wildcard_end]
+        return target[:len(fixed)] == fixed
     else:
         return pattern == target
 
@@ -294,24 +294,46 @@ class JsonFilterVisitor(NodeVisitor):
                 f'{op_common.node.text} does not apply to string')
 
         # assert op_common.node.text in ['!=', '=']
-        if not isinstance(target_value, str):
-            # False if '='; True if '!='
-            return False if op_common.node.text == '=' else True
+        if isinstance(target_value, int):
+            try:
+                v = int(text_quoted.value)
+                return op_common.value(target_value, v)
+            except ValueError:
+                pass
+        elif isinstance(target_value, float):
+            try:
+                v = float(text_quoted.value)
+                return op_common.value(target_value, v)
+            except ValueError:
+                pass
+        # text_quoted is not number-like,
+        # ===========
+        # FIXME
 
-        ret = _match_strings(text_quoted.value, target_value)
-        return (op_common.node.text == '=' and ret) or (
-            op_common.node.text == '!=' and not ret)
+        if type(target_value) in [str, int, float]:
+            if _is_number_like_str(text_quoted.value) and isinstance(target_value, Number):
+                return op_common.value(target_value,
+                                       _str_to_number(text_quoted.value))
+
+            # TODO: scientific notation changes representation, i.e. str(1e2) == '100.0'
+            target_value_str = str(target_value)
+            ret = _match_strings(text_quoted.value, target_value_str)
+            return (op_common.node.text == '=' and ret) or (
+                op_common.node.text == '!=' and not ret)
+        else:
+            # target_value is not a str or number, i.e. null, array, object
+            return False
 
     def _cmp_common_text_simple(self, op_common, text_simple, target_value):
-        # text_simple, may or may not be a number
+        # text_simple, may or may not look like a number
         if op_common.node.text in ['<', '<=', '>', '>=']:
-            # numeric op like '>'
             if not _is_number_like_str(text_simple.value):
-                # strings can't do numeric op, e.g.
-                # {$.foo > a_string}
+                # non number-like strings can't do numeric op, e.g.
+                # {$.foo > abc}
                 raise VisitorException(
                     f'{op_common.node.text} does not apply to string')
-            # text_simple can be viewed as a number, e.g.
+
+            # text_simple looks like a number, e.g.
             # {$.foo > 12.34}
             # then they can compare if target_value is a number
             if isinstance(target_value, Number):
@@ -321,25 +343,19 @@ class JsonFilterVisitor(NodeVisitor):
             return False
 
         # assert op_common.node.text in ['!=', '=']
-        # if target_value is a number
-        if isinstance(target_value, Number):
-            if _is_number_like_str(text_simple.value):
-                # if text_simple can be viewed as a number, e.g.
-                # {$.foo > 12.34}
-                # then they can compare
-                ret = op_common.value(target_value,
-                                      _str_to_number(text_simple.value))
-                return (op_common.node.text == '=' and ret) or (
-                    op_common.node.text == '!=' and ret)
-        elif isinstance(target_value, str):
-            # if target_value is a string, e.g. '45.67' or 'abc*'
-            matched = _match_strings(text_simple.value, target_value)
-            return (op_common.node.text == '=' and matched) or (
-                op_common.node.text == '!=' and not matched)
-        else:
-            # target_value is not a number or str, i.e. null, array, object
-            return False if op_common.node.text == '=' else True
+        if type(target_value) in [str, int, float]:
+            if _is_number_like_str(text_simple.value) and isinstance(target_value, Number):
+                return op_common.value(target_value,
+                                       _str_to_number(text_simple.value))
 
+            # TODO: scientific notation changes representation, i.e. str(1e2) == '100.0'
+            target_value_str = str(target_value)
+            ret = _match_strings(text_simple.value, target_value_str)
+            return (op_common.node.text == '=' and ret) or (
+                op_common.node.text == '!=' and not ret)
+        else:
+            # target_value is not a str or number, i.e. null, array, object
+            return False
 
     def visit_cmp_common(self, node, visited_children):
         selector = self._get_resolved_expr_first(visited_children,
