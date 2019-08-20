@@ -294,35 +294,35 @@ class JsonFilterVisitor(NodeVisitor):
                 f'{op_common.node.text} does not apply to string')
 
         # assert op_common.node.text in ['!=', '=']
-        if isinstance(target_value, int):
+        if isinstance(target_value, str):
+            ret = _match_strings(text_quoted.value, target_value)
+            return (op_common.node.text == '=' and ret) or (
+                op_common.node.text == '!=' and not ret)
+        elif isinstance(target_value, int):
             try:
                 v = int(text_quoted.value)
                 return op_common.value(target_value, v)
             except ValueError:
-                pass
+                ret = _match_strings(text_quoted.value, str(target_value))
+                return (op_common.node.text == '=' and ret) or (
+                    op_common.node.text == '!=' and not ret)
         elif isinstance(target_value, float):
+            try:
+                #{ $.someFloat2 != "12" }
+                int(text_quoted.value)
+                return False if op_common.node.text == '=' else True
+            except ValueError:
+                pass
             try:
                 v = float(text_quoted.value)
                 return op_common.value(target_value, v)
             except ValueError:
-                pass
-        # text_quoted is not number-like,
-        # ===========
-        # FIXME
+                ret = _match_strings(text_quoted.value, str(target_value))
+                return (op_common.node.text == '=' and ret) or (
+                    op_common.node.text == '!=' and not ret)
 
-        if type(target_value) in [str, int, float]:
-            if _is_number_like_str(text_quoted.value) and isinstance(target_value, Number):
-                return op_common.value(target_value,
-                                       _str_to_number(text_quoted.value))
-
-            # TODO: scientific notation changes representation, i.e. str(1e2) == '100.0'
-            target_value_str = str(target_value)
-            ret = _match_strings(text_quoted.value, target_value_str)
-            return (op_common.node.text == '=' and ret) or (
-                op_common.node.text == '!=' and not ret)
-        else:
-            # target_value is not a str or number, i.e. null, array, object
-            return False
+        # target_value is not a str or number, i.e. null, array, object
+        return False
 
     def _cmp_common_text_simple(self, op_common, text_simple, target_value):
         # text_simple, may or may not look like a number
