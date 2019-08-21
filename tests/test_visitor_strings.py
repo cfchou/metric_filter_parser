@@ -41,25 +41,26 @@ def test_quoted_not_existed(json_dict):
 
 
 def test_quoted_not_string(json_dict):
-    # for '=', type mismatch gives False
+
+    # can still run if a quoted string can be coerced to a number
     pattern = '{ $.someInt = "123" }'
+    assert match(pattern, json_dict)
+    pattern = '{ $.someInt != "123" }'
     assert not match(pattern, json_dict)
     pattern = '{ $.someFloat = "12.34" }'
+    assert match(pattern, json_dict)
+    pattern = '{ $.someFloat != "12.34" }'
     assert not match(pattern, json_dict)
+
+    # type mismatch gives False
     pattern = '{ $.someObject = "someString" }'
+    assert not match(pattern, json_dict)
+    pattern = '{ $.someObject != "someString" }'
     assert not match(pattern, json_dict)
     pattern = '{ $.someArray = "someString" }'
     assert not match(pattern, json_dict)
-
-    # for '!=', type mismatch gives True
-    pattern = '{ $.someInt != "123" }'
-    assert match(pattern, json_dict)
-    pattern = '{ $.someFloat != "12.34" }'
-    assert match(pattern, json_dict)
-    pattern = '{ $.someObject != "someString" }'
-    assert match(pattern, json_dict)
     pattern = '{ $.someArray != "someString" }'
-    assert match(pattern, json_dict)
+    assert not match(pattern, json_dict)
 
 
 def test_quoted_numeric_op_raise(json_dict):
@@ -141,11 +142,16 @@ def test_simple_not_string(json_dict):
     assert not match(pattern, json_dict)
     pattern = '{ $.someFloat != 12.34 }'
     assert not match(pattern, json_dict)
-    # True for matching non-number field
+
+    # target is not string or number then return unmatched
     pattern = '{ $.someObject != someString }'
-    assert match(pattern, json_dict)
+    assert not match(pattern, json_dict)
+    pattern = '{ $.someObject = someString }'
+    assert not match(pattern, json_dict)
     pattern = '{ $.someArray != someString }'
-    assert match(pattern, json_dict)
+    assert not match(pattern, json_dict)
+    pattern = '{ $.someArray = someString }'
+    assert not match(pattern, json_dict)
 
 
 def test_simple_numeric_op_raise(json_dict):

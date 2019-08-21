@@ -1,4 +1,5 @@
 from json_filter import match
+from json_filter.exception import ParsingException
 import pytest
 import json
 
@@ -30,6 +31,12 @@ def json_dict():
 }
     """
     return json.loads(src)
+
+
+def test_invalid_pattern():
+    with pytest.raises(ParsingException):
+        pattern = '{ $.someInt }'
+        match(pattern, json_dict)
 
 
 def test_int(json_dict):

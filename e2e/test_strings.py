@@ -1,6 +1,7 @@
 import pytest
 import json
 from json_filter import match
+from json_filter.exception import VisitorException
 
 @pytest.fixture()
 def json_data():
@@ -9,13 +10,15 @@ def json_data():
     "eventType": "UpdateTrail",
     "sourceIPAddress": "111.111.111.111",
     "someString": "111.111.111.111",
+    "emptyString": "",
     "someInt": 123,
     "someFloat": 12.34,
     "someFloat2": 12.0,
+    "someEscaped": "error \\\"message\\\"",
     "someObject": {
     },
-    "someEscaped": "error \\\"message\\\"",
-    "someArray": []
+    "someArray": [],
+    "someNull": null
 }
     """
     # validation
@@ -23,13 +26,14 @@ def json_data():
     return src
 
 
-def test_equal_quoted(json_data, client):
+def test_equality_quoted(json_data, client):
     ## quoted term
     patterns = [
         # string
         '{ $.someString = "111.111.111.111" }',
         '{ $.someString != 111*111 }',
         '{ $.someString = "*" }',
+        '{ $.emptyString = "*" }',
 
         # '{ $.someString = "*111.111.111" }',     // should be True, aws bug?
         '{ $.someString = "*.111.111.111" }',  # but this passed
@@ -100,7 +104,7 @@ def test_equal_quoted(json_data, client):
         assert match(p, json.loads(json_data))
 
 
-def test_equal_unquoted(json_data, client):
+def test_equality_unquoted(json_data, client):
     patterns = [
         # unquoted term
         '{ $.someString = 111.111.111.111 }',
@@ -174,8 +178,14 @@ def test_equal_unquoted(json_data, client):
         assert match(p, json.loads(json_data))
 
 
-def test_numeric_op_unquoted(json_data, client):
+def test_numeric_unquoted_unmatched(json_data, client):
     patterns = [
+        '{ $.someString != 111 }',
+    ]
+
+def test_numeric_unquoted_matched(json_data, client):
+    patterns = [
+        '{ $.someString != 111 }',
 
         # '{ $.eventType >= 123 }',   # len(matches)==0
 
@@ -235,6 +245,76 @@ def test_numeric_op_unquoted(json_data, client):
         assert match(p, json.loads(json_data))
 
 
+def test_unmatched(json_data, client):
+    patterns = [
+        # number-like unquoted strings are valid but the matching result would be unmatched whatever.
+        '{ $.someString > 123 }',
+        '{ $.someString >= 123 }',
+        '{ $.someString < 123 }',
+        '{ $.someString <= 123 }',
+
+        # number-like strings can do equality ops
+        '{ $.someString = 123 }',
+        '{ $.someString = "123" }',
+
+        # if target is not string or number return unmatched
+        '{ $.someObject = 123 }',
+        '{ $.someObject != 123 }',
+        '{ $.someObject > 123 }',
+        '{ $.someObject >= 123 }',
+        '{ $.someObject < 123 }',
+        '{ $.someObject <= 123 }',
+
+        '{ $.someObject = "123" }',
+        '{ $.someObject != "123" }',
+        '{ $.someObject = "non-number-like" }',
+        '{ $.someObject != "non-number-like" }',
+    ]
+    for p in patterns:
+        resp = client.test_metric_filter(filterPattern=p, logEventMessages=[json_data])
+        matches = resp.get('matches', [])
+        assert not matches
+        assert not match(p, json.loads(json_data))
+
+
+def test_invalid(json_data, client):
+    patterns = [
+        # non number-like strings can't do numeric ops
+        '{ $.someString > unquoted_string }',
+        '{ $.someString >= unquoted_string }',
+        '{ $.someString < unquoted_string }',
+        '{ $.someString <= unquoted_string }',
+
+        '{ $.someString > "quoted_string" }',
+        '{ $.someString >= "quoted_string" }',
+        '{ $.someString < "quoted_string" }',
+        '{ $.someString <= "quoted_string" }',
+
+        # number-like quoted strings can't do numeric ops either
+        '{ $.someString > "123" }',
+        '{ $.someString >= "123" }',
+        '{ $.someString < "123" }',
+        '{ $.someString <= "123" }',
+
+        #'{ $.eventType > "UpdateTrail" }',
+        #'{ $.eventType >= "UpdateTrail" }',
+        #'{ $.eventType < "UpdateTrail" }',
+        #'{ $.eventType <= "UpdateTrail" }',
+        #'{ $.eventType > UpdateTrail }',
+        #'{ $.eventType >= UpdateTrail }',
+        #'{ $.eventType < UpdateTrail }',
+        #'{ $.eventType <= UpdateTrail }',
+    ]
+    for p in patterns:
+        try:
+            client.test_metric_filter(filterPattern=p, logEventMessages=[json_data])
+        except client.exceptions.InvalidParameterException as e:
+            with pytest.raises(VisitorException):
+                match(p, json.loads(json_data))
+        else:
+            assert False
+
+# TODO
 @pytest.mark.skip('')
 def test_patterns_not_matched(json_data, client):
     patterns = [
@@ -257,22 +337,3 @@ def test_patterns_not_matched(json_data, client):
         assert not matches
 
 
-@pytest.mark.skip('')
-def test_patterns_invalid(json_data, client):
-    patterns = [
-        '{ $.eventType > "UpdateTrail" }',
-        '{ $.eventType >= "UpdateTrail" }',
-        '{ $.eventType < "UpdateTrail" }',
-        '{ $.eventType <= "UpdateTrail" }',
-        '{ $.eventType > UpdateTrail }',
-        '{ $.eventType >= UpdateTrail }',
-        '{ $.eventType < UpdateTrail }',
-        '{ $.eventType <= UpdateTrail }',
-    ]
-    for p in patterns:
-        try:
-            client.test_metric_filter(filterPattern=p, logEventMessages=[json_data])
-        except client.exceptions.InvalidParameterException as e:
-            assert e.args[0].find('Invalid metric filter pattern') != -1
-        else:
-            assert False

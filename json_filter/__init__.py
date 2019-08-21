@@ -9,7 +9,7 @@ def match(pattern, data):
     Try match pattern and data.
     :param pattern:
     :param data:
-    :return: return boolean pattern is legitimate to match, otherwise raises
+    :return: return boolean if pattern is legitimate to match, otherwise raises
     ParsingError or VisitorError
     """
     try:
