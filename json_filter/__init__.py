@@ -31,3 +31,10 @@ def match(pattern, data):
             f'the implementation')
 
     return resolved_expr.value
+
+
+def parse(pattern):
+    try:
+        _grammar.parse(pattern)
+    except ParseError as e:
+        raise ParsingException('Parsing pattern failed') from e
